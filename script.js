@@ -13,6 +13,7 @@ const PHASE_LABELS = {
   voting: "Voting",
   results: "Results Revealed",
 };
+const DEFAULT_PIN_PROMPT = "Enter your PIN (or create one if this is your first login)";
 
 const state = {
   selectedGameCode: null,
@@ -46,9 +47,19 @@ function normalizeGame(raw = {}) {
   };
 
   Object.entries(base.players).forEach(([name, player]) => {
+    const hasPinProp = Object.prototype.hasOwnProperty.call(player, "pin");
+    let pinValue = "";
+    if (!hasPinProp) {
+      pinValue = randomPin();
+    } else if (player.pin == null) {
+      pinValue = "";
+    } else {
+      pinValue = String(player.pin);
+    }
+
     base.players[name] = {
       name: player.name || name,
-      pin: player.pin || randomPin(),
+      pin: pinValue,
       target: player.target || "",
     };
   });
@@ -271,6 +282,14 @@ function randomCode(length = 5) {
 
 function randomPin() {
   return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+function playerHasPin(player) {
+  return Boolean(player && typeof player.pin === "string" && player.pin.length > 0);
+}
+
+function formatPinForDisplay(player) {
+  return playerHasPin(player) ? player.pin : "Not set";
 }
 
 function formatDateTime(timestamp) {
@@ -523,6 +542,13 @@ function populatePlayerOptions(game) {
     });
   playerSelectors.playerPinForm?.classList.add("hidden");
   playerSelectors.playerPin.value = "";
+  const label = playerSelectors.playerPinForm?.querySelector("label");
+  if (label) {
+    label.textContent = DEFAULT_PIN_PROMPT;
+  }
+  if (playerSelectors.playerPin) {
+    playerSelectors.playerPin.placeholder = "";
+  }
 }
 
 function updateAddPlayerVisibility(game) {
@@ -550,15 +576,46 @@ function toggleAddPlayerForm() {
   }
 }
 
-function handlePlayerSelect() {
+async function handlePlayerSelect() {
   if (!playerSelectors) return;
   const name = playerSelectors.playerSelect.value;
+  const label = playerSelectors.playerPinForm?.querySelector("label");
+  const input = playerSelectors.playerPin;
   if (name) {
     playerSelectors.playerPinForm.classList.remove("hidden");
+    if (label) {
+      label.textContent = DEFAULT_PIN_PROMPT;
+    }
+    if (input) {
+      input.placeholder = "";
+    }
+    if (state.selectedGameCode) {
+      const game = await getGame(state.selectedGameCode);
+      const player = game?.players?.[name];
+      if (player && label) {
+        if (playerHasPin(player)) {
+          label.textContent = "Enter your PIN";
+          if (input) {
+            input.placeholder = "Enter PIN";
+          }
+        } else {
+          label.textContent = "Create a new PIN (4-6 digits)";
+          if (input) {
+            input.placeholder = "Choose 4-6 digits";
+          }
+        }
+      }
+    }
     playerSelectors.playerPin.focus();
   } else {
     playerSelectors.playerPinForm.classList.add("hidden");
     playerSelectors.playerPin.value = "";
+    if (label) {
+      label.textContent = DEFAULT_PIN_PROMPT;
+    }
+    if (input) {
+      input.placeholder = "";
+    }
   }
 }
 
@@ -575,7 +632,7 @@ async function handleCreatePlayer(event) {
       }
       current.players[name] = {
         name,
-        pin: randomPin(),
+        pin: "",
         target: "",
       };
       return current;
@@ -585,8 +642,7 @@ async function handleCreatePlayer(event) {
     return;
   }
   if (!game) return;
-  const pin = game.players[name].pin;
-  playerSelectors.newPlayerFeedback.textContent = `Welcome, ${name}! Your secret PIN is ${pin}. Memorize it now.`;
+  playerSelectors.newPlayerFeedback.textContent = `Welcome, ${name}! Select your name above to set your personal PIN.`;
   playerSelectors.addPlayerForm.reset();
   playerSelectors.addPlayerForm.classList.add("hidden");
   populatePlayerOptions(game);
@@ -603,6 +659,34 @@ async function handlePlayerLogin(event) {
   const player = game.players[name];
   if (!player) {
     alert("Player not found. Ask the host to add you.");
+    return;
+  }
+  if (!playerHasPin(player)) {
+    if (!/^\d{4,6}$/.test(pin)) {
+      alert("Choose a PIN using 4 to 6 digits.");
+      playerSelectors.playerPin.focus();
+      return;
+    }
+    let updatedGame;
+    try {
+      updatedGame = await updateGame(game.code, (current) => {
+        if (!current.players[name]) {
+          throw new Error("Player not found in game");
+        }
+        current.players[name].pin = pin;
+        return current;
+      });
+    } catch (error) {
+      console.error("Failed to save new player PIN", error);
+      alert("Unable to save your PIN. Please try again.");
+      return;
+    }
+    if (!updatedGame || !playerHasPin(updatedGame.players[name])) {
+      alert("Unable to save your PIN. Please try again.");
+      return;
+    }
+    enterPlayerDashboard(updatedGame, name);
+    savePlayerSession({ gameCode: updatedGame.code, name });
     return;
   }
   if (player.pin !== pin) {
@@ -672,6 +756,13 @@ function handleLogout() {
   playerSelectors.timeline.innerHTML = "";
   playerSelectors.voteStatus.textContent = "";
   playerSelectors.resultsSummary.innerHTML = "";
+  const label = playerSelectors.playerPinForm?.querySelector("label");
+  if (label) {
+    label.textContent = DEFAULT_PIN_PROMPT;
+  }
+  if (playerSelectors.playerPin) {
+    playerSelectors.playerPin.placeholder = "";
+  }
 }
 
 function renderConfirmations(game, playerName) {
@@ -1031,7 +1122,7 @@ function renderPinboard(game) {
     .sort((a, b) => a.name.localeCompare(b.name))
     .forEach((player) => {
       const entry = document.createElement("div");
-      entry.textContent = `${player.name} — PIN: ${player.pin}`;
+      entry.textContent = `${player.name} — PIN: ${formatPinForDisplay(player)}`;
       fragment.appendChild(entry);
     });
   if (!fragment.childNodes.length) {
@@ -1065,7 +1156,9 @@ function renderAdminPlayerList(game) {
     .forEach((player) => {
       const node = adminPlayerTemplate.content.cloneNode(true);
       node.querySelector(".player-name").textContent = player.name;
-      node.querySelector(".player-pin").textContent = state.revealPins ? `PIN: ${player.pin}` : "PIN hidden";
+      node.querySelector(".player-pin").textContent = state.revealPins
+        ? `PIN: ${formatPinForDisplay(player)}`
+        : "PIN hidden";
       node.querySelector(".player-target").textContent = player.target ? `Targets ${player.target}` : "No target";
       const remove = node.querySelector(".remove-player");
       remove.dataset.playerName = player.name;

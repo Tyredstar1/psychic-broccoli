@@ -58,8 +58,15 @@
         </div>
 
         <form id="player-pin-form" class="stacked-form hidden">
-          <label for="player-pin">Enter your PIN</label>
-          <input type="password" id="player-pin" maxlength="6" required />
+          <label for="player-pin">Enter your PIN (or create one if this is your first login)</label>
+          <input
+            type="password"
+            id="player-pin"
+            maxlength="6"
+            pattern="\d{4,6}"
+            inputmode="numeric"
+            required
+          />
           <button type="submit" class="primary">Enter Player Dashboard</button>
         </form>
 
@@ -68,7 +75,7 @@
           <form id="add-player-form" class="stacked-form hidden">
             <label for="new-player-name">New player name</label>
             <input type="text" id="new-player-name" maxlength="30" required />
-            <button type="submit" class="primary">Create Player &amp; PIN</button>
+            <button type="submit" class="primary">Create Player</button>
           </form>
           <p id="new-player-feedback" class="muted"></p>
         </div>
