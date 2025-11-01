@@ -1,7 +1,3 @@
-Perfect! That's an important constraint. Here's the updated prompt with GitHub Pages hosting specified:
-
----
-
 **Murder Mystery Party Web App (GitHub Pages Hosted)**
 
 Build a web application for hosting murder mystery party games with the following features:
@@ -63,7 +59,3 @@ Build a web application for hosting murder mystery party games with the followin
 Make the UI fun and thematic (mystery/detective aesthetic) but keep it simple and easy to use during an active party.
 
 **Deployment:** Ensure the app works when deployed to GitHub Pages with proper configuration for client-side routing if needed.
-
----
-
-This version makes it clear that the solution needs to be static-site compatible. Claude Code will likely suggest either a localStorage-based solution (works only on one device) or integrate something like Firebase (free tier allows multiple devices to connect to the same game). Would you like me to specify a preference?
