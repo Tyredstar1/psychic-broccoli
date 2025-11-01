@@ -1,61 +1,43 @@
-**Murder Mystery Party Web App (GitHub Pages Hosted)**
+# Murder Mystery Party Web App
 
-Build a web application for hosting murder mystery party games with the following features:
+Host and play murder mystery party games from a single static web page that can be deployed to GitHub Pages. The experience is split into a host control center and a player portal so everyone can manage the party from their own device.
 
-**Core Functionality:**
+## ✨ Features
 
-1. **Game Setup & Player Management**
-   - Create a new game session with a unique game code
-   - Game host can add players by name and assign each player a secret target (who they're supposed to "kill")
-   - Generate unique PIN codes for each player (4-6 digits) for privacy
-   - Display the assignment chain so the host can verify everyone has a target
+### Game setup & player management
+- Create or load games by entering a short game code (auto-generated codes available).
+- Add players with unique PINs generated automatically.
+- Randomly assign secret targets in a closed loop so no one targets themselves.
+- View the assignment chain to validate target distribution.
 
-2. **Player Authentication**
-   - Players log in using their name + PIN code
-   - Each player can only see their own assigned target
-   - Secure session management to keep assignments private
+### Player authentication & dashboard
+- Players log in with game code, name, and PIN.
+- Dashboard shows each player's secret target and provides controls for the rest of the game phases.
 
-3. **Murder Documentation**
-   - Players can upload photos of their "murders" with:
-     - Timestamp of when it occurred
-     - Optional notes/description of the murder method
-     - Victim confirmation (the victim should be able to confirm they were eliminated)
-   - Create a timeline/gallery view of all murders for investigation phase
-   - Only show murders after they're confirmed
+### Murder documentation
+- Players record murders by adding notes and optional photo evidence (stored locally via Base64).
+- Murders remain private until confirmed by the victim.
 
-4. **Investigation Phase**
-   - Display all confirmed murders in chronological order
-   - Show photos and details for review
-   - Players can view the evidence to prepare for the trial
+### Investigation phase
+- Confirmed murders appear in a chronological timeline that everyone can review before the trial.
 
-5. **Voting & Resolution**
-   - Trial phase where all players vote on who they think the "real killer" is (or whatever the mystery objective is)
-   - Each player submits their vote privately
-   - Host enters the correct answer
-   - Results page showing:
-     - All votes
-     - Correct answer
-     - Winner(s)
-     - Complete murder chain visualization
+### Voting & resolution
+- Players submit private votes from their dashboards.
+- The host sets the official culprit and sees a vote breakdown plus the list of winners.
 
-**Technical Requirements:**
-- **Must be deployable to GitHub Pages** (static site hosting)
-- Pure frontend application - single HTML file with embedded JavaScript and CSS, OR a simple React app that builds to static files
-- **Data persistence options:**
-  - Use localStorage for same-device sessions, OR
-  - Integrate a free serverless backend like Firebase (Firestore + Storage for images) or Supabase
-  - If using a backend, keep it simple and free-tier friendly
-- Image handling: Base64 encoding for localStorage, or cloud storage if using Firebase/Supabase
-- Responsive design for mobile devices
-- Clean, intuitive UI suitable for party atmosphere
-- Include a README with setup and deployment instructions
+## 🗂 Data storage
+All information is stored in the browser's `localStorage`, so a single device can host the entire game offline. If you need a clean slate, clear the browser storage or open the page in a private window.
 
-**User Flow:**
-1. Host creates game → adds players → assigns targets → distributes PINs
-2. Players log in → see their target → commit murders → upload evidence
-3. Investigation phase → everyone reviews the evidence
-4. Trial → everyone votes → results revealed
+## 🚀 Getting started
 
-Make the UI fun and thematic (mystery/detective aesthetic) but keep it simple and easy to use during an active party.
+1. Clone this repository.
+2. Open `index.html` in your browser to use the app locally.
+3. To deploy on GitHub Pages, push the repository to a public repo and enable Pages for the `main` branch (or the dedicated Pages branch).
 
-**Deployment:** Ensure the app works when deployed to GitHub Pages with proper configuration for client-side routing if needed.
+## 🧩 Tips for party hosts
+- Share the game code with players and distribute their PINs privately.
+- Encourage players to confirm murders quickly so the investigation timeline stays up to date.
+- When you're ready for the trial, remind players to vote from their dashboard, then reveal the results from the host panel.
+
+## 📱 Responsive design
+The interface is optimized for both mobile and desktop devices so players can participate from their phones during the party.
