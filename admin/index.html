@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Murder Mystery Admin Portal</title>
+    <link rel="stylesheet" href="../styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body data-view="admin">
+    <header class="app-header">
+      <div class="header-inner">
+        <h1>Game Command Center</h1>
+        <p class="tagline">Create games, manage players, orchestrate the mystery.</p>
+      </div>
+      <nav class="header-nav">
+        <a href="/" class="ghost-link">Back to Player Site</a>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="card" id="admin-login">
+        <h2>Administrator Access</h2>
+        <p class="hint">Enter the shared admin code to manage all games.</p>
+        <form id="admin-login-form" class="stacked-form">
+          <label for="admin-password">Admin password</label>
+          <input type="password" id="admin-password" required />
+          <button type="submit" class="primary">Unlock Portal</button>
+        </form>
+        <p id="admin-login-error" class="error-text" role="alert"></p>
+      </section>
+
+      <section class="card hidden" id="admin-panel">
+        <div class="section-header">
+          <h2>Game Overview</h2>
+          <button id="admin-logout" class="ghost-button">Lock Portal</button>
+        </div>
+
+        <section class="section">
+          <h3>Create or Load Game</h3>
+          <form id="create-game-form" class="stacked-form compact">
+            <div class="form-group">
+              <label for="game-name">Game nickname</label>
+              <input type="text" id="game-name" maxlength="40" placeholder="Eg. Midnight Masquerade" />
+            </div>
+            <div class="form-group">
+              <label for="game-code">Game code</label>
+              <div class="inline">
+                <input
+                  type="text"
+                  id="game-code"
+                  name="gameCode"
+                  maxlength="6"
+                  pattern="[A-Za-z0-9]{3,6}"
+                  placeholder="Auto"
+                />
+                <button type="button" id="generate-code" class="ghost-button">Generate</button>
+              </div>
+              <small>3-6 letters or numbers. Leave blank to auto-generate.</small>
+            </div>
+            <button type="submit" class="primary">Create / Load Game</button>
+          </form>
+        </section>
+
+        <section class="section">
+          <h3>Active Games</h3>
+          <select id="admin-game-select"></select>
+        </section>
+
+        <section class="section hidden" id="game-management">
+          <header class="management-header">
+            <div>
+              <h3 id="management-title"></h3>
+              <p class="muted">
+                Code: <span id="management-code"></span>
+                &bull;
+                Created <span id="management-created"></span>
+              </p>
+            </div>
+            <div class="phase-controls">
+              <label for="phase-select">Phase</label>
+              <div class="inline">
+                <select id="phase-select"></select>
+                <button id="set-phase" class="secondary">Set</button>
+                <button id="next-phase" class="ghost-button">Advance</button>
+              </div>
+            </div>
+          </header>
+
+          <div class="management-grid">
+            <section>
+              <h4>Registration &amp; Status</h4>
+              <p class="muted">Registration is <span id="registration-status"></span>.</p>
+              <button id="toggle-started" class="secondary"></button>
+              <button id="reset-pinboard" class="ghost-button">Reveal Player PINs</button>
+              <div id="pinboard" class="scroll-area"></div>
+            </section>
+
+            <section>
+              <h4>Players</h4>
+              <form id="admin-add-player" class="inline-form">
+                <input type="text" id="admin-player-name" maxlength="30" placeholder="Add player name" required />
+                <button type="submit" class="secondary">Add Player</button>
+              </form>
+              <div id="admin-player-list" class="scroll-area"></div>
+            </section>
+
+            <section>
+              <h4>Target Assignments</h4>
+              <div class="assignment-actions">
+                <button id="assign-random" class="primary">Assign Random Loop</button>
+                <button id="clear-targets" class="ghost-button">Clear All</button>
+              </div>
+              <div id="manual-assignments" class="scroll-area"></div>
+              <div id="assignment-chain" class="scroll-area"></div>
+            </section>
+
+            <section>
+              <h4>Correct Culprit</h4>
+              <form id="correct-answer-form" class="stacked-form compact">
+                <label for="correct-answer">Select the true culprit</label>
+                <select id="correct-answer"></select>
+                <button type="submit" class="secondary">Save Answer</button>
+              </form>
+              <div id="results-summary" class="scroll-area"></div>
+            </section>
+
+            <section>
+              <h4>Murders &amp; Evidence</h4>
+              <div id="admin-murders" class="scroll-area"></div>
+            </section>
+
+            <section>
+              <h4>Voting Overview</h4>
+              <div id="admin-votes" class="scroll-area"></div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>&copy; <span id="current-year"></span> Murder Mystery Party HQ. Plan responsibly!</p>
+    </footer>
+
+    <template id="player-row-template">
+      <div class="player-row">
+        <div>
+          <strong class="player-name"></strong>
+          <span class="player-pin"></span>
+        </div>
+        <div class="player-target"></div>
+        <button class="ghost-button remove-player">Remove</button>
+      </div>
+    </template>
+
+    <template id="manual-assignment-template">
+      <div class="assignment-row">
+        <label></label>
+        <select></select>
+      </div>
+    </template>
+
+    <template id="murder-card-template">
+      <article class="murder-card">
+        <div class="murder-card__meta">
+          <strong class="murder-card__title"></strong>
+          <span class="murder-card__timestamp"></span>
+        </div>
+        <p class="murder-card__notes"></p>
+        <img class="murder-card__image" alt="Murder evidence" />
+        <div class="murder-card__actions"></div>
+      </article>
+    </template>
+
+    <script src="../script.js"></script>
+  </body>
+</html>
