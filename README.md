@@ -26,18 +26,22 @@ Host and play murder mystery party games from a single static web page that can 
 - The host sets the official culprit and sees a vote breakdown plus the list of winners.
 
 ## 🗂 Data storage
-All information is stored in the browser's `localStorage`, so a single device can host the entire game offline. If you need a clean slate, clear the browser storage or open the page in a private window.
+Game state now lives on a lightweight Node.js server so every browser connected to the same host shares the same information. Data is persisted to `data/games.json` so you can stop and restart the server without losing progress. Delete that file if you need to reset everything.
 
 ## 🚀 Getting started
 
 1. Clone this repository.
-2. Open `index.html` in your browser to use the app locally.
-3. To deploy on GitHub Pages, push the repository to a public repo and enable Pages for the `main` branch (or the dedicated Pages branch).
+2. From the project root run `node server.js` (Node.js 18+ recommended).
+3. Open [http://localhost:3000/](http://localhost:3000/) for the player portal and [http://localhost:3000/admin/](http://localhost:3000/admin/) for the host dashboard.
+4. Share the server address with everyone playing. Each browser session will stay in sync automatically via Server-Sent Events.
 
 ## 🧩 Tips for party hosts
 - Share the game code with players and distribute their PINs privately.
 - Encourage players to confirm murders quickly so the investigation timeline stays up to date.
 - When you're ready for the trial, remind players to vote from their dashboard, then reveal the results from the host panel.
+
+## 🧑‍🤝‍🧑 Real-time collaboration
+Updates made from either the host dashboard or a player device stream to every connected browser instantly. If the live stream is unavailable (for example, in an older browser), the client will automatically fall back to periodic polling so no one is left behind.
 
 ## 📱 Responsive design
 The interface is optimized for both mobile and desktop devices so players can participate from their phones during the party.
