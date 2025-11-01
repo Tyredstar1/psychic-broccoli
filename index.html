@@ -12,184 +12,141 @@
       rel="stylesheet"
     />
   </head>
-  <body>
+  <body data-view="player">
     <header class="app-header">
       <div class="header-inner">
         <h1>Murder Mystery Party HQ</h1>
-        <p class="tagline">Organize, investigate, and solve your party's mystery.</p>
+        <p class="tagline">Choose your game, join your role, uncover the truth.</p>
       </div>
+      <nav class="header-nav">
+        <a href="/admin/" class="ghost-link">Host &amp; Admin Portal</a>
+      </nav>
     </header>
 
     <main class="layout">
-      <section class="card" id="host-setup">
-        <h2>Host Control Center</h2>
-        <form id="create-game-form" class="stacked-form">
-          <div class="form-group">
-            <label for="game-name">Game nickname</label>
-            <input
-              type="text"
-              id="game-name"
-              name="gameName"
-              maxlength="40"
-              placeholder="Eg. Midnight Masquerade"
-            />
-          </div>
-          <div class="form-group">
-            <label for="game-code">Game code</label>
-            <div class="inline">
-              <input
-                type="text"
-                id="game-code"
-                name="gameCode"
-                maxlength="6"
-                pattern="[A-Za-z0-9]{3,6}"
-                placeholder="Auto"
-              />
-              <button type="button" id="generate-code" class="ghost-button">Generate</button>
-            </div>
-            <small>3-6 letters or numbers. Leave blank to auto-generate.</small>
-          </div>
-          <button type="submit" class="primary">Create / Load Game</button>
-        </form>
-
-        <div id="host-tools" class="hidden">
-          <div class="section">
-            <h3>Players</h3>
-            <form id="add-player-form" class="inline-form">
-              <input
-                type="text"
-                id="player-name"
-                name="playerName"
-                maxlength="30"
-                placeholder="Add player name"
-                required
-              />
-              <button type="submit" class="secondary">Add Player</button>
-            </form>
-            <div id="player-list" class="scroll-area"></div>
-          </div>
-
-          <div class="section">
-            <h3>Target Assignments</h3>
-            <button id="assign-targets" class="primary">Assign Secret Targets</button>
-            <p class="hint">Targets are assigned in a closed loop. Players never target themselves.</p>
-            <div id="assignment-chain" class="scroll-area"></div>
-          </div>
-
-          <div class="section">
-            <h3>Murder Log (Host View)</h3>
-            <div id="pending-murders" class="scroll-area"></div>
-            <div id="confirmed-murders" class="scroll-area"></div>
-          </div>
-
-          <div class="section">
-            <h3>Trial &amp; Resolution</h3>
-            <form id="correct-answer-form" class="stacked-form compact">
-              <label for="correct-answer">Correct culprit</label>
-              <select id="correct-answer" name="correctAnswer"></select>
-              <button type="submit" class="secondary">Set Correct Answer</button>
-            </form>
-            <div id="results-summary" class="scroll-area"></div>
-          </div>
+      <section class="card" id="games-overview">
+        <div class="section-header">
+          <h2>Available Games</h2>
+          <button id="refresh-games" class="ghost-button">Refresh</button>
         </div>
+        <p class="hint">
+          Select a game to continue. You'll verify your identity with your secret PIN.
+        </p>
+        <div id="games-list" class="games-list"></div>
+        <p id="no-games" class="muted">No active games yet. Ask your host to create one.</p>
       </section>
 
-      <section class="card" id="player-portal">
-        <h2>Player Portal</h2>
-        <form id="login-form" class="stacked-form">
-          <div class="form-group">
-            <label for="login-game-code">Game code</label>
-            <input
-              type="text"
-              id="login-game-code"
-              name="loginGameCode"
-              maxlength="6"
-              required
-            />
+      <section class="card hidden" id="game-entry">
+        <header class="game-entry__header">
+          <div>
+            <h2 id="selected-game-title"></h2>
+            <p class="muted">
+              Code: <span id="selected-game-code"></span>
+              &bull;
+              Status: <span id="selected-game-status"></span>
+            </p>
+            <p id="selected-game-phase" class="phase-pill"></p>
           </div>
-          <div class="form-group">
-            <label for="login-name">Player name</label>
-            <input type="text" id="login-name" name="loginName" maxlength="30" required />
-          </div>
-          <div class="form-group">
-            <label for="login-pin">PIN</label>
-            <input type="password" id="login-pin" name="loginPin" maxlength="6" required />
-          </div>
+          <button id="clear-selection" class="ghost-button">Choose another game</button>
+        </header>
+
+        <div class="stacked-form" id="player-selection">
+          <label for="player-select">Who are you?</label>
+          <select id="player-select">
+            <option value="">Select your name</option>
+          </select>
+        </div>
+
+        <form id="player-pin-form" class="stacked-form hidden">
+          <label for="player-pin">Enter your PIN</label>
+          <input type="password" id="player-pin" maxlength="6" required />
           <button type="submit" class="primary">Enter Player Dashboard</button>
         </form>
 
-        <div id="player-dashboard" class="hidden">
-          <div class="dashboard-header">
-            <div>
-              <h3 id="player-greeting"></h3>
-              <p id="player-target"></p>
-            </div>
-            <button id="logout" class="ghost-button">Log out</button>
-          </div>
-
-          <section class="section">
-            <h3>Record a Murder</h3>
-            <form id="murder-form" class="stacked-form compact">
-              <div class="form-group">
-                <label>Target</label>
-                <input type="text" id="murder-target" readonly />
-              </div>
-              <div class="form-group">
-                <label for="murder-notes">Notes / Method</label>
-                <textarea
-                  id="murder-notes"
-                  name="murderNotes"
-                  rows="3"
-                  placeholder="Describe how you eliminated your target"
-                ></textarea>
-              </div>
-              <div class="form-group">
-                <label for="murder-photo">Upload photo evidence</label>
-                <input type="file" id="murder-photo" accept="image/*" />
-              </div>
-              <button type="submit" class="secondary">Submit Murder Report</button>
-            </form>
-          </section>
-
-          <section class="section">
-            <h3>Confirm Murders Against You</h3>
-            <div id="confirmations" class="scroll-area"></div>
-          </section>
-
-          <section class="section">
-            <h3>Cast Your Vote</h3>
-            <form id="vote-form" class="stacked-form compact">
-              <label for="vote-select">Who is the real culprit?</label>
-              <select id="vote-select" name="vote"></select>
-              <button type="submit" class="secondary">Submit Vote</button>
-            </form>
-            <div id="vote-status"></div>
-          </section>
+        <div id="add-player-section" class="add-player hidden">
+          <button id="show-add-player" class="secondary">Add New Player</button>
+          <form id="add-player-form" class="stacked-form hidden">
+            <label for="new-player-name">New player name</label>
+            <input type="text" id="new-player-name" maxlength="30" required />
+            <button type="submit" class="primary">Create Player &amp; PIN</button>
+          </form>
+          <p id="new-player-feedback" class="muted"></p>
         </div>
       </section>
-    </main>
 
-    <section class="card wide" id="investigation">
-      <h2>Investigation Timeline</h2>
-      <p class="hint">
-        Confirmed murders appear here in chronological order. Use the evidence to prepare for the trial.
-      </p>
-      <div id="timeline" class="timeline"></div>
-    </section>
+      <section class="card hidden" id="player-dashboard">
+        <header class="dashboard-header">
+          <div>
+            <p class="phase-pill" id="player-phase"></p>
+            <h2 id="player-greeting"></h2>
+            <p id="player-target" class="muted"></p>
+          </div>
+          <button id="logout" class="ghost-button">Log out</button>
+        </header>
+
+        <section class="section" data-phase="murders">
+          <h3>Record a Murder</h3>
+          <p class="hint">Eliminate your assigned target and log the deed for confirmation.</p>
+          <form id="murder-form" class="stacked-form compact">
+            <div class="form-group">
+              <label>Target</label>
+              <input type="text" id="murder-target" readonly />
+            </div>
+            <div class="form-group">
+              <label for="murder-notes">Notes / Method</label>
+              <textarea
+                id="murder-notes"
+                name="murderNotes"
+                rows="3"
+                placeholder="Describe how you eliminated your target"
+              ></textarea>
+            </div>
+            <div class="form-group">
+              <label for="murder-photo">Upload photo evidence</label>
+              <input type="file" id="murder-photo" accept="image/*" />
+            </div>
+            <button type="submit" class="secondary">Submit Murder Report</button>
+          </form>
+        </section>
+
+        <section class="section" data-phase="murders investigation">
+          <h3>Confirm Murders Against You</h3>
+          <div id="confirmations" class="scroll-area"></div>
+        </section>
+
+        <section class="section" data-phase="investigation voting results">
+          <h3>Investigation Timeline</h3>
+          <p class="hint">Confirmed murders appear here in chronological order.</p>
+          <div id="timeline" class="timeline"></div>
+        </section>
+
+        <section class="section" data-phase="voting results">
+          <h3>Cast Your Vote</h3>
+          <form id="vote-form" class="stacked-form compact">
+            <label for="vote-select">Who is the real culprit?</label>
+            <select id="vote-select" name="vote"></select>
+            <button type="submit" class="secondary">Submit Vote</button>
+          </form>
+          <div id="vote-status" class="muted"></div>
+        </section>
+
+        <section class="section" data-phase="results">
+          <h3>Final Results</h3>
+          <div id="results-summary" class="scroll-area"></div>
+        </section>
+      </section>
+    </main>
 
     <footer class="app-footer">
       <p>&copy; <span id="current-year"></span> Murder Mystery Party HQ. Plan responsibly!</p>
     </footer>
 
-    <template id="player-row-template">
-      <div class="player-row">
-        <div>
-          <strong class="player-name"></strong>
-          <span class="player-pin"></span>
-        </div>
-        <div class="player-target"></div>
-        <button class="ghost-button remove-player">Remove</button>
-      </div>
+    <template id="game-card-template">
+      <button class="game-card">
+        <span class="game-card__name"></span>
+        <span class="game-card__code"></span>
+        <span class="game-card__status"></span>
+      </button>
     </template>
 
     <template id="murder-card-template">
