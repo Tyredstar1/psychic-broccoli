@@ -399,7 +399,6 @@ async function initPlayerView() {
     murderForm: document.getElementById("murder-form"),
     murderTarget: document.getElementById("murder-target"),
     murderNotes: document.getElementById("murder-notes"),
-    murderPhoto: document.getElementById("murder-photo"),
     confirmations: document.getElementById("confirmations"),
     timeline: document.getElementById("timeline"),
     voteForm: document.getElementById("vote-form"),
@@ -684,7 +683,8 @@ function renderConfirmations(game, playerName) {
   const fragment = document.createDocumentFragment();
   pending.forEach((murder) => {
     const node = playerMurderTemplate.content.cloneNode(true);
-    node.querySelector(".murder-card__title").textContent = `${murder.murderer} claims your demise`;
+    const claimedMurderer = murder.murderer || "Someone";
+    node.querySelector(".murder-card__title").textContent = `${claimedMurderer} claims your demise`;
     node.querySelector(".murder-card__timestamp").textContent = formatDateTime(murder.timestamp);
     node.querySelector(".murder-card__notes").textContent = murder.notes || "No notes provided.";
     const image = node.querySelector(".murder-card__image");
@@ -696,10 +696,83 @@ function renderConfirmations(game, playerName) {
     }
     const actions = node.querySelector(".murder-card__actions");
     actions.innerHTML = "";
+    const helper = document.createElement("p");
+    helper.className = "muted";
+    helper.textContent = "Select the culprit and add your own evidence before confirming.";
+    actions.appendChild(helper);
+
+    const murdererField = document.createElement("div");
+    murdererField.className = "murder-confirm__field";
+    const murdererLabel = document.createElement("label");
+    murdererLabel.setAttribute("for", `confirm-murderer-${murder.id}`);
+    murdererLabel.textContent = "Who eliminated you?";
+    murdererField.appendChild(murdererLabel);
+    const murdererSelect = document.createElement("select");
+    murdererSelect.id = `confirm-murderer-${murder.id}`;
+    murdererSelect.className = "murder-confirm__select";
+    murdererSelect.append(new Option("Select a player", ""));
+    Object.values(game.players)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((player) => {
+        murdererSelect.append(new Option(player.name, player.name));
+      });
+    murdererSelect.value = murder.murderer || "";
+    murdererField.appendChild(murdererSelect);
+    actions.appendChild(murdererField);
+
+    const photoField = document.createElement("div");
+    photoField.className = "murder-confirm__field";
+    const photoLabel = document.createElement("label");
+    photoLabel.setAttribute("for", `confirm-photo-${murder.id}`);
+    photoLabel.textContent = "Upload your evidence";
+    photoField.appendChild(photoLabel);
+    const photoInput = document.createElement("input");
+    photoInput.id = `confirm-photo-${murder.id}`;
+    photoInput.type = "file";
+    photoInput.accept = "image/*";
+    photoField.appendChild(photoInput);
+    actions.appendChild(photoField);
+
     const button = document.createElement("button");
     button.textContent = "Confirm elimination";
     button.className = "secondary";
-    button.addEventListener("click", () => confirmMurder(game.code, murder.id, playerName));
+    button.addEventListener("click", () => {
+      if (!murdererSelect.value) {
+        alert("Select who eliminated you before confirming.");
+        murdererSelect.focus();
+        return;
+      }
+      const file = photoInput.files && photoInput.files[0];
+      if (!file && !murder.photoData) {
+        alert("Upload evidence before confirming your elimination.");
+        photoInput.focus();
+        return;
+      }
+      const finalize = (photoData) => {
+        confirmMurder(
+          game.code,
+          murder.id,
+          playerName,
+          murdererSelect.value,
+          typeof photoData === "string" ? photoData : murder.photoData || ""
+        );
+      };
+      if (file) {
+        button.disabled = true;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          button.disabled = false;
+          finalize(event.target?.result || "");
+        };
+        reader.onerror = () => {
+          button.disabled = false;
+          alert("We couldn't read that file. Please try again.");
+        };
+        reader.readAsDataURL(file);
+      } else {
+        finalize(murder.photoData || "");
+      }
+    });
     actions.appendChild(button);
     fragment.appendChild(node);
   });
@@ -771,10 +844,16 @@ function renderPlayerResults(game) {
   playerSelectors.resultsSummary.appendChild(fragment);
 }
 
-async function confirmMurder(gameCode, murderId, confirmedBy) {
+async function confirmMurder(gameCode, murderId, confirmedBy, murdererName, photoData) {
   const game = await updateGame(gameCode, (current) => {
     const murder = current.murders.find((entry) => entry.id === murderId);
     if (murder) {
+      if (murdererName) {
+        murder.murderer = murdererName;
+      }
+      if (typeof photoData === "string") {
+        murder.photoData = photoData;
+      }
       murder.confirmed = true;
       murder.confirmedBy = confirmedBy;
       murder.confirmedAt = Date.now();
@@ -798,36 +877,26 @@ async function handleMurderSubmission(event) {
     return;
   }
   const timestamp = Date.now();
-  const submit = async (photoData) => {
-    try {
-      const game = await updateGame(gameCode, (current) => {
-        current.murders.push({
-          id: `${timestamp}-${Math.random().toString(36).slice(2, 7)}`,
-          murderer: name,
-          victim: target,
-          notes,
-          timestamp,
-          photoData,
-          confirmed: false,
-        });
-        return current;
+  try {
+    const game = await updateGame(gameCode, (current) => {
+      current.murders.push({
+        id: `${timestamp}-${Math.random().toString(36).slice(2, 7)}`,
+        murderer: name,
+        victim: target,
+        notes,
+        timestamp,
+        photoData: "",
+        confirmed: false,
       });
-      if (game) {
-        playerSelectors.murderForm.reset();
-        playerSelectors.murderTarget.value = target;
-        syncPlayerDashboard(game);
-      }
-    } catch (error) {
-      console.error("Failed to submit murder", error);
+      return current;
+    });
+    if (game) {
+      playerSelectors.murderForm.reset();
+      playerSelectors.murderTarget.value = target;
+      syncPlayerDashboard(game);
     }
-  };
-  const file = playerSelectors.murderPhoto.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (event) => submit(event.target.result);
-    reader.readAsDataURL(file);
-  } else {
-    submit("");
+  } catch (error) {
+    console.error("Failed to submit murder", error);
   }
 }
 

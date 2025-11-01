@@ -314,8 +314,23 @@ button:active {
 }
 
 #confirmations .murder-card__actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  gap: 0.75rem;
+  justify-items: stretch;
+}
+
+#confirmations .murder-card__actions .muted {
+  margin: 0;
+}
+
+.murder-confirm__field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.murder-confirm__select,
+.murder-confirm__field input[type="file"] {
+  width: 100%;
 }
 
 #murder-target {
