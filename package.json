@@ -1,0 +1,9 @@
+{
+  "name": "psychic-broccoli",
+  "version": "1.0.0",
+  "description": "Murder mystery party web app with collaborative server",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

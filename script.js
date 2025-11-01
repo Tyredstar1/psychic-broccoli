@@ -1,7 +1,10 @@
-const STORAGE_KEY = "murderMysteryGames";
+const API_BASE = window.__MYSTERY_API_BASE__ || "";
 const ADMIN_PASSWORD = "CLUEKEEPER";
 const SESSION_KEY = "murderMysteryPlayerSession";
 const ADMIN_SESSION_KEY = "murderMysteryAdmin";
+
+const GAMES_ENDPOINT = `${API_BASE}/api/games`;
+const GAME_STREAM_ENDPOINT = `${API_BASE}/api/stream`;
 
 const PHASES = ["murders", "investigation", "voting", "results"];
 const PHASE_LABELS = {
@@ -18,6 +21,16 @@ const state = {
   adminGameCode: null,
   revealPins: false,
 };
+
+const dataStore = {
+  cache: {},
+  ready: false,
+};
+
+let refreshPromise = null;
+let syncScheduled = false;
+let allowSync = false;
+let pendingSync = false;
 
 function normalizeGame(raw = {}) {
   const base = {
@@ -62,56 +75,193 @@ function normalizeGame(raw = {}) {
   return base;
 }
 
-function loadGames() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    const normalized = {};
-    Object.entries(parsed).forEach(([code, game]) => {
-      normalized[code] = normalizeGame({ ...game, code });
+function scheduleSync() {
+  if (!allowSync) {
+    pendingSync = true;
+    return;
+  }
+  if (syncScheduled) return;
+  syncScheduled = true;
+  Promise.resolve()
+    .then(() => handleServerSync())
+    .catch((error) => {
+      console.error("Unable to synchronize views", error);
+    })
+    .finally(() => {
+      syncScheduled = false;
     });
-    return normalized;
+}
+
+function applySnapshot(gamesArray = []) {
+  const snapshot = {};
+  gamesArray.forEach((game) => {
+    if (game && game.code) {
+      snapshot[game.code] = normalizeGame({ ...game, code: game.code });
+    }
+  });
+  dataStore.cache = snapshot;
+  dataStore.ready = true;
+  scheduleSync();
+}
+
+async function refreshGamesFromServer() {
+  try {
+    const response = await fetch(GAMES_ENDPOINT, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status}`);
+    }
+    const payload = await response.json();
+    const games = Array.isArray(payload.games) ? payload.games : [];
+    applySnapshot(games);
   } catch (error) {
-    console.warn("Unable to parse stored games", error);
-    return {};
+    console.error("Failed to refresh games from server", error);
+    if (!dataStore.ready) {
+      dataStore.cache = {};
+      dataStore.ready = true;
+    }
+    throw error;
   }
+  return dataStore.cache;
 }
 
-function saveGames(games) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(games));
-}
-
-function ensureGame(code) {
-  const games = loadGames();
-  if (!games[code]) {
-    games[code] = normalizeGame({ code });
-    saveGames(games);
+async function ensureGamesLoaded() {
+  if (dataStore.ready) {
+    return dataStore.cache;
   }
-  return games[code];
+  if (!refreshPromise) {
+    refreshPromise = refreshGamesFromServer().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  try {
+    await refreshPromise;
+  } catch (error) {
+    console.warn("Continuing with empty game cache after load failure");
+  }
+  return dataStore.cache;
 }
 
-function updateGame(code, transform) {
-  const games = loadGames();
-  if (!games[code]) return null;
-  const current = normalizeGame(games[code]);
-  const updated = normalizeGame(transform({ ...current }));
-  games[code] = updated;
-  saveGames(games);
+async function loadGames() {
+  await ensureGamesLoaded();
+  return { ...dataStore.cache };
+}
+
+async function saveGameToServer(code, game) {
+  const response = await fetch(`${GAMES_ENDPOINT}/${encodeURIComponent(code)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ...game, code }),
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to save game ${code}: ${response.status}`);
+  }
+  const payload = await response.json();
+  const saved = normalizeGame({ ...payload.game, code });
+  dataStore.cache[code] = saved;
+  return saved;
+}
+
+async function ensureGame(code) {
+  if (!code) {
+    throw new Error("Game code is required");
+  }
+  await ensureGamesLoaded();
+  if (!dataStore.cache[code]) {
+    const created = normalizeGame({ code });
+    dataStore.cache[code] = created;
+    try {
+      await saveGameToServer(code, created);
+    } catch (error) {
+      delete dataStore.cache[code];
+      throw error;
+    }
+    scheduleSync();
+  }
+  return dataStore.cache[code];
+}
+
+async function updateGame(code, transform) {
+  await ensureGamesLoaded();
+  if (!dataStore.cache[code]) return null;
+  const current = normalizeGame(dataStore.cache[code]);
+  let updated;
+  try {
+    updated = normalizeGame(transform({ ...current }));
+  } catch (error) {
+    throw error;
+  }
+  dataStore.cache[code] = updated;
+  try {
+    await saveGameToServer(code, updated);
+  } catch (error) {
+    console.error("Failed to persist game update", error);
+    await refreshGamesFromServer().catch(() => undefined);
+    throw error;
+  }
+  scheduleSync();
   return updated;
 }
 
-function getGame(code) {
-  const games = loadGames();
-  if (!games[code]) return null;
-  return normalizeGame(games[code]);
+async function getGame(code) {
+  await ensureGamesLoaded();
+  if (!code) return null;
+  if (dataStore.cache[code]) {
+    return normalizeGame(dataStore.cache[code]);
+  }
+  try {
+    const response = await fetch(`${GAMES_ENDPOINT}/${encodeURIComponent(code)}`);
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json();
+    const game = normalizeGame({ ...payload.game, code });
+    dataStore.cache[code] = game;
+    scheduleSync();
+    return game;
+  } catch (error) {
+    console.error("Failed to fetch game", error);
+    return null;
+  }
 }
 
-function listGames() {
-  const games = loadGames();
+async function listGames() {
+  const games = await loadGames();
   return Object.values(games)
     .map((game) => normalizeGame(game))
     .sort((a, b) => b.createdAt - a.createdAt || a.code.localeCompare(b.code));
+}
+
+function initRealtimeUpdates() {
+  if (window.EventSource) {
+    let source = null;
+    const connect = () => {
+      if (source) {
+        source.close();
+      }
+      source = new EventSource(GAME_STREAM_ENDPOINT, { withCredentials: false });
+      source.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload && payload.type === "sync" && Array.isArray(payload.games)) {
+            applySnapshot(payload.games);
+          }
+        } catch (error) {
+          console.error("Failed to process realtime update", error);
+        }
+      };
+      source.onerror = () => {
+        source?.close();
+        setTimeout(connect, 3000);
+      };
+    };
+    connect();
+  } else {
+    setInterval(() => {
+      refreshGamesFromServer().catch(() => undefined);
+    }, 5000);
+  }
 }
 
 function randomCode(length = 5) {
@@ -190,15 +340,13 @@ function initCommon() {
   if (yearEl) {
     yearEl.textContent = new Date().getFullYear();
   }
-  window.addEventListener("storage", handleStorageChange);
 }
 
-function handleStorageChange(event) {
-  if (event.key !== STORAGE_KEY) return;
+async function handleServerSync() {
   if (document.body.dataset.view === "player") {
-    renderGamesList();
+    await renderGamesList();
     if (state.selectedGameCode) {
-      const game = getGame(state.selectedGameCode);
+      const game = await getGame(state.selectedGameCode);
       if (!game) {
         resetPlayerSelection();
         return;
@@ -210,9 +358,9 @@ function handleStorageChange(event) {
     }
   }
   if (document.body.dataset.view === "admin") {
-    renderAdminGames();
+    await renderAdminGames();
     if (state.adminGameCode) {
-      const game = getGame(state.adminGameCode);
+      const game = await getGame(state.adminGameCode);
       if (game) {
         renderGameManagement(game);
       }
@@ -225,7 +373,7 @@ let playerSelectors = null;
 let gameCardTemplate = null;
 let playerMurderTemplate = null;
 
-function initPlayerView() {
+async function initPlayerView() {
   playerSelectors = {
     gamesList: document.getElementById("games-list"),
     noGames: document.getElementById("no-games"),
@@ -264,7 +412,9 @@ function initPlayerView() {
   gameCardTemplate = document.getElementById("game-card-template");
   playerMurderTemplate = document.getElementById("murder-card-template");
 
-  playerSelectors.refreshGames?.addEventListener("click", renderGamesList);
+  playerSelectors.refreshGames?.addEventListener("click", () => {
+    refreshGamesFromServer().catch(() => undefined);
+  });
   playerSelectors.clearSelection?.addEventListener("click", resetPlayerSelection);
   playerSelectors.playerSelect?.addEventListener("change", handlePlayerSelect);
   playerSelectors.playerPinForm?.addEventListener("submit", handlePlayerLogin);
@@ -274,10 +424,10 @@ function initPlayerView() {
   playerSelectors.murderForm?.addEventListener("submit", handleMurderSubmission);
   playerSelectors.voteForm?.addEventListener("submit", handleVoteSubmission);
 
-  renderGamesList();
+  await renderGamesList();
   const storedSession = loadPlayerSession();
   if (storedSession) {
-    const game = getGame(storedSession.gameCode);
+    const game = await getGame(storedSession.gameCode);
     if (game && game.players[storedSession.name]) {
       renderSelectedGame(game);
       enterPlayerDashboard(game, storedSession.name);
@@ -287,33 +437,43 @@ function initPlayerView() {
   }
 }
 
-function renderGamesList() {
+async function renderGamesList() {
   if (!playerSelectors) return;
-  const games = listGames();
   playerSelectors.gamesList.innerHTML = "";
-  if (!games.length) {
+  try {
+    const games = await listGames();
+    if (!games.length) {
+      playerSelectors.noGames?.classList.remove("hidden");
+      return;
+    }
+    playerSelectors.noGames?.classList.add("hidden");
+    const fragment = document.createDocumentFragment();
+    games.forEach((game) => {
+      const node = gameCardTemplate.content.cloneNode(true);
+      const button = node.querySelector(".game-card");
+      button.dataset.code = game.code;
+      node.querySelector(".game-card__name").textContent = game.name || `Game ${game.code}`;
+      node.querySelector(".game-card__code").textContent = `Code: ${game.code}`;
+      node.querySelector(".game-card__status").textContent = game.started
+        ? `Phase: ${phaseLabel(game.phase)}`
+        : "Open for players";
+      button.addEventListener("click", () => {
+        selectGame(game.code);
+      });
+      fragment.appendChild(node);
+    });
+    playerSelectors.gamesList.appendChild(fragment);
+  } catch (error) {
+    console.error("Unable to render games list", error);
     playerSelectors.noGames?.classList.remove("hidden");
-    return;
+    if (playerSelectors.noGames) {
+      playerSelectors.noGames.textContent = "Unable to reach the game server. Try again soon.";
+    }
   }
-  playerSelectors.noGames?.classList.add("hidden");
-  const fragment = document.createDocumentFragment();
-  games.forEach((game) => {
-    const node = gameCardTemplate.content.cloneNode(true);
-    const button = node.querySelector(".game-card");
-    button.dataset.code = game.code;
-    node.querySelector(".game-card__name").textContent = game.name || `Game ${game.code}`;
-    node.querySelector(".game-card__code").textContent = `Code: ${game.code}`;
-    node.querySelector(".game-card__status").textContent = game.started
-      ? `Phase: ${phaseLabel(game.phase)}`
-      : "Open for players";
-    button.addEventListener("click", () => selectGame(game.code));
-    fragment.appendChild(node);
-  });
-  playerSelectors.gamesList.appendChild(fragment);
 }
 
-function selectGame(code) {
-  const game = getGame(code);
+async function selectGame(code) {
+  const game = await getGame(code);
   if (!game) return;
   state.selectedGameCode = code;
   savePlayerSession(null);
@@ -402,14 +562,14 @@ function handlePlayerSelect() {
   }
 }
 
-function handleCreatePlayer(event) {
+async function handleCreatePlayer(event) {
   event.preventDefault();
   if (!state.selectedGameCode) return;
   const name = playerSelectors.newPlayerName.value.trim();
   if (!name) return;
   let game;
   try {
-    game = updateGame(state.selectedGameCode, (current) => {
+    game = await updateGame(state.selectedGameCode, (current) => {
       if (current.players[name]) {
         throw new Error("Player exists");
       }
@@ -432,10 +592,10 @@ function handleCreatePlayer(event) {
   populatePlayerOptions(game);
 }
 
-function handlePlayerLogin(event) {
+async function handlePlayerLogin(event) {
   event.preventDefault();
   if (!state.selectedGameCode) return;
-  const game = getGame(state.selectedGameCode);
+  const game = await getGame(state.selectedGameCode);
   if (!game) return;
   const name = playerSelectors.playerSelect.value;
   const pin = playerSelectors.playerPin.value.trim();
@@ -611,8 +771,8 @@ function renderPlayerResults(game) {
   playerSelectors.resultsSummary.appendChild(fragment);
 }
 
-function confirmMurder(gameCode, murderId, confirmedBy) {
-  const game = updateGame(gameCode, (current) => {
+async function confirmMurder(gameCode, murderId, confirmedBy) {
+  const game = await updateGame(gameCode, (current) => {
     const murder = current.murders.find((entry) => entry.id === murderId);
     if (murder) {
       murder.confirmed = true;
@@ -627,7 +787,7 @@ function confirmMurder(gameCode, murderId, confirmedBy) {
   }
 }
 
-function handleMurderSubmission(event) {
+async function handleMurderSubmission(event) {
   event.preventDefault();
   if (!state.playerSession) return;
   const { gameCode, name } = state.playerSession;
@@ -638,23 +798,27 @@ function handleMurderSubmission(event) {
     return;
   }
   const timestamp = Date.now();
-  const submit = (photoData) => {
-    const game = updateGame(gameCode, (current) => {
-      current.murders.push({
-        id: `${timestamp}-${Math.random().toString(36).slice(2, 7)}`,
-        murderer: name,
-        victim: target,
-        notes,
-        timestamp,
-        photoData,
-        confirmed: false,
+  const submit = async (photoData) => {
+    try {
+      const game = await updateGame(gameCode, (current) => {
+        current.murders.push({
+          id: `${timestamp}-${Math.random().toString(36).slice(2, 7)}`,
+          murderer: name,
+          victim: target,
+          notes,
+          timestamp,
+          photoData,
+          confirmed: false,
+        });
+        return current;
       });
-      return current;
-    });
-    if (game) {
-      playerSelectors.murderForm.reset();
-      playerSelectors.murderTarget.value = target;
-      syncPlayerDashboard(game);
+      if (game) {
+        playerSelectors.murderForm.reset();
+        playerSelectors.murderTarget.value = target;
+        syncPlayerDashboard(game);
+      }
+    } catch (error) {
+      console.error("Failed to submit murder", error);
     }
   };
   const file = playerSelectors.murderPhoto.files[0];
@@ -667,12 +831,12 @@ function handleMurderSubmission(event) {
   }
 }
 
-function handleVoteSubmission(event) {
+async function handleVoteSubmission(event) {
   event.preventDefault();
   if (!state.playerSession) return;
   const { gameCode, name } = state.playerSession;
   const suspect = playerSelectors.voteSelect.value;
-  const game = updateGame(gameCode, (current) => {
+  const game = await updateGame(gameCode, (current) => {
     current.votes[name] = {
       suspect,
       timestamp: Date.now(),
@@ -691,7 +855,7 @@ let adminPlayerTemplate = null;
 let adminAssignmentTemplate = null;
 let adminMurderTemplate = null;
 
-function initAdminView() {
+async function initAdminView() {
   adminSelectors = {
     loginSection: document.getElementById("admin-login"),
     loginForm: document.getElementById("admin-login-form"),
@@ -735,7 +899,9 @@ function initAdminView() {
   adminSelectors.logout?.addEventListener("click", handleAdminLogout);
   adminSelectors.createGameForm?.addEventListener("submit", handleCreateGame);
   adminSelectors.generateCode?.addEventListener("click", handleGenerateCode);
-  adminSelectors.gameSelect?.addEventListener("change", handleAdminGameSelect);
+  adminSelectors.gameSelect?.addEventListener("change", () => {
+    handleAdminGameSelect();
+  });
   adminSelectors.setPhase?.addEventListener("click", handleSetPhase);
   adminSelectors.nextPhase?.addEventListener("click", handleAdvancePhase);
   adminSelectors.toggleStarted?.addEventListener("click", handleToggleStarted);
@@ -748,11 +914,11 @@ function initAdminView() {
 
   loadAdminSession();
   if (state.adminAuthorized) {
-    unlockAdminPanel();
+    await unlockAdminPanel();
   }
 }
 
-function handleAdminLogin(event) {
+async function handleAdminLogin(event) {
   event.preventDefault();
   const password = adminSelectors.loginPassword.value.trim();
   if (password !== ADMIN_PASSWORD) {
@@ -764,16 +930,16 @@ function handleAdminLogin(event) {
   adminSelectors.loginError.textContent = "";
   state.revealPins = false;
   saveAdminSession(true);
-  unlockAdminPanel();
+  await unlockAdminPanel();
 }
 
-function unlockAdminPanel() {
+async function unlockAdminPanel() {
   adminSelectors.loginSection.classList.add("hidden");
   adminSelectors.panel.classList.remove("hidden");
-  renderAdminGames();
+  await renderAdminGames();
   const firstGame = state.adminGameCode || adminSelectors.gameSelect.value;
   if (firstGame) {
-    handleAdminGameSelect();
+    await handleAdminGameSelect();
   }
 }
 
@@ -785,9 +951,9 @@ function handleAdminLogout() {
   adminSelectors.loginSection.classList.remove("hidden");
 }
 
-function renderAdminGames() {
+async function renderAdminGames() {
   if (!adminSelectors) return;
-  const games = listGames();
+  const games = await listGames();
   adminSelectors.gameSelect.innerHTML = "";
   adminSelectors.gameSelect.append(new Option("Select a game", ""));
   games.forEach((game) => {
@@ -806,14 +972,14 @@ function renderAdminGames() {
   }
 }
 
-function handleAdminGameSelect() {
+async function handleAdminGameSelect() {
   const code = adminSelectors.gameSelect.value;
   state.adminGameCode = code || null;
   if (!code) {
     adminSelectors.gameManagement.classList.add("hidden");
     return;
   }
-  const game = getGame(code);
+  const game = await getGame(code);
   if (!game) {
     adminSelectors.gameManagement.classList.add("hidden");
     return;
@@ -875,11 +1041,11 @@ function renderPinboard(game) {
   adminSelectors.pinboard.appendChild(fragment);
 }
 
-function handleTogglePinboard() {
+async function handleTogglePinboard() {
   state.revealPins = !state.revealPins;
   adminSelectors.revealPins.textContent = state.revealPins ? "Hide Player PINs" : "Reveal Player PINs";
   if (state.adminGameCode) {
-    const game = getGame(state.adminGameCode);
+    const game = await getGame(state.adminGameCode);
     if (game) {
       renderPinboard(game);
     }
@@ -937,12 +1103,12 @@ function renderManualAssignments(game) {
   adminSelectors.manualAssignments.appendChild(fragment);
 }
 
-function handleManualAssignmentChange(event) {
+async function handleManualAssignmentChange(event) {
   const select = event.target;
   const name = select.dataset.playerName;
   if (!name || !state.adminGameCode) return;
   const value = select.value;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     if (current.players[name]) {
       current.players[name].target = value;
     }
@@ -1082,7 +1248,7 @@ function buildResultsSummary(game) {
   return fragment;
 }
 
-function handleCreateGame(event) {
+async function handleCreateGame(event) {
   event.preventDefault();
   const formData = new FormData(adminSelectors.createGameForm);
   let code = (formData.get("gameCode") || "").trim().toUpperCase();
@@ -1094,28 +1260,34 @@ function handleCreateGame(event) {
     alert("Game code should be 3-6 letters or numbers.");
     return;
   }
-  const game = ensureGame(code);
-  if (name) {
-    updateGame(code, (current) => {
-      current.name = name;
-      return current;
-    });
+  try {
+    await ensureGame(code);
+    if (name) {
+      await updateGame(code, (current) => {
+        current.name = name;
+        return current;
+      });
+    }
+  } catch (error) {
+    console.error("Unable to create or update game", error);
+    alert("Failed to create the game. Please try again.");
+    return;
   }
   adminSelectors.createGameForm.reset();
-  renderAdminGames();
+  await renderAdminGames();
   adminSelectors.gameSelect.value = code;
-  handleAdminGameSelect();
+  await handleAdminGameSelect();
 }
 
 function handleGenerateCode() {
   adminSelectors.createGameForm.gameCode.value = randomCode();
 }
 
-function handleSetPhase(event) {
+async function handleSetPhase(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
   const phase = adminSelectors.phaseSelect.value;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     current.phase = phase;
     return current;
   });
@@ -1124,10 +1296,10 @@ function handleSetPhase(event) {
   }
 }
 
-function handleAdvancePhase(event) {
+async function handleAdvancePhase(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     current.phase = nextPhase(current.phase);
     return current;
   });
@@ -1136,10 +1308,10 @@ function handleAdvancePhase(event) {
   }
 }
 
-function handleToggleStarted(event) {
+async function handleToggleStarted(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     current.started = !current.started;
     if (!current.started) {
       current.phase = "murders";
@@ -1151,13 +1323,13 @@ function handleToggleStarted(event) {
   }
 }
 
-function handleAdminAddPlayer(event) {
+async function handleAdminAddPlayer(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
   const name = adminSelectors.adminPlayerName.value.trim();
   if (!name) return;
   try {
-    const game = updateGame(state.adminGameCode, (current) => {
+    const game = await updateGame(state.adminGameCode, (current) => {
       if (current.players[name]) {
         throw new Error("Player exists");
       }
@@ -1177,13 +1349,13 @@ function handleAdminAddPlayer(event) {
   }
 }
 
-function handleAdminRemovePlayer(event) {
+async function handleAdminRemovePlayer(event) {
   const button = event.target.closest(".remove-player");
   if (!button || !state.adminGameCode) return;
   const name = button.dataset.playerName;
   if (!name) return;
   if (!confirm(`Remove ${name} from the game?`)) return;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     delete current.players[name];
     current.murders = current.murders.filter(
       (murder) => murder.murderer !== name && murder.victim !== name
@@ -1209,10 +1381,10 @@ function handleAdminRemovePlayer(event) {
   }
 }
 
-function handleAssignRandom(event) {
+async function handleAssignRandom(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     const players = Object.values(current.players);
     if (players.length < 2) {
       alert("Add at least two players before assigning targets.");
@@ -1234,10 +1406,10 @@ function handleAssignRandom(event) {
   }
 }
 
-function handleClearTargets(event) {
+async function handleClearTargets(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     Object.values(current.players).forEach((player) => {
       player.target = "";
     });
@@ -1248,11 +1420,11 @@ function handleClearTargets(event) {
   }
 }
 
-function handleCorrectAnswerSave(event) {
+async function handleCorrectAnswerSave(event) {
   event.preventDefault();
   if (!state.adminGameCode) return;
   const value = adminSelectors.correctAnswerSelect.value;
-  const game = updateGame(state.adminGameCode, (current) => {
+  const game = await updateGame(state.adminGameCode, (current) => {
     current.correctAnswer = value;
     return current;
   });
@@ -1262,12 +1434,27 @@ function handleCorrectAnswerSave(event) {
 }
 
 // Initialization
-initCommon();
-
-if (document.body.dataset.view === "player") {
-  initPlayerView();
+async function bootstrap() {
+  initCommon();
+  try {
+    await refreshGamesFromServer();
+  } catch (error) {
+    console.warn("Starting with empty data due to load error", error);
+  }
+  if (document.body.dataset.view === "player") {
+    await initPlayerView();
+  }
+  if (document.body.dataset.view === "admin") {
+    await initAdminView();
+  }
+  allowSync = true;
+  if (pendingSync) {
+    pendingSync = false;
+    scheduleSync();
+  } else {
+    scheduleSync();
+  }
+  initRealtimeUpdates();
 }
 
-if (document.body.dataset.view === "admin") {
-  initAdminView();
-}
+bootstrap();
