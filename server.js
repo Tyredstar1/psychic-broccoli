@@ -63,9 +63,19 @@ function normalizeGame(raw = {}, codeOverride) {
   };
 
   Object.entries(base.players).forEach(([name, player]) => {
+    const hasPinProp = Object.prototype.hasOwnProperty.call(player, "pin");
+    let pinValue = "";
+    if (!hasPinProp) {
+      pinValue = randomPin();
+    } else if (player.pin == null) {
+      pinValue = "";
+    } else {
+      pinValue = String(player.pin);
+    }
+
     base.players[name] = {
       name: player.name || name,
-      pin: player.pin || randomPin(),
+      pin: pinValue,
       target: player.target || "",
     };
   });
